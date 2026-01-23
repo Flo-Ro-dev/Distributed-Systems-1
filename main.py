@@ -1,7 +1,14 @@
 """
-game/
+  # Abgabe 03.02 (Dienstag)
+
   main.py
   config.py
+
+  game/
+    player.py          # Represents a player and his attributes
+    rules.py           # Static methods for game rules
+    ui.py              # Front-End
+    dice_game.py       # Game-loop
 
   net/
     messages.py        # Message-Format (JSON), encode/decode

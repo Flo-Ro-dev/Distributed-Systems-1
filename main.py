@@ -7,7 +7,7 @@
   game/
     player.py          # Represents a player and his attributes
     rules.py           # Static methods for game rules
-    ui.py              # Front-End
+    main_game.py       # Main of the game
     dice_game.py       # Game-loop
 
   net/

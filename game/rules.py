@@ -5,8 +5,17 @@ class Rules:
                  penalty_maexchen:int   
                  ):
         """
-        :param rank self: Ranking of possible dice results
+        This Class describes the game rules.
+
+        :param rank: Ranking of possible dice results
+        :type rank: key-value
+        :param max_strikes: Maximum number of strikes a player can have 
+        :type max_strikes: int
+        :param penalty: Penalty points for a regular loss
+        :type penalty: int
+        :param penalty_maexchen: Penalty for doubting a maexchen wrong
         """
+
         self.max_strikes = max_strikes
         self.penalty = penalty
         self.penalty_maexchen = penalty_maexchen
@@ -17,7 +26,7 @@ class Rules:
             51, 52, 53, 54,
             61, 62, 63, 64, 65,
             11, 22, 33, 44, 55, 66,
-            21 # Mäxchen
+            21 # Maexchen
             ]
         
         self.rank = {value : i for i, value in enumerate(self.order)}
@@ -46,6 +55,8 @@ class Rules:
         :type result_current: int
         :param result_previous: Dice result of previous player
         :type result_previous: int
+        
+        returns boolean
         """
 
         return self.rank[result_current] > self.rank[result_previous]
@@ -56,6 +67,7 @@ class Rules:
         Checks if the user announcement is a valid input
         
         :param user_input: User decides what to announce
+
         return boolean
         """
         return user_input in self.rank

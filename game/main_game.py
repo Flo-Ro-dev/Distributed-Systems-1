@@ -4,9 +4,13 @@ from dice_game import DiceGame
 
 
 if __name__ == '__main__':
+    
+    """
+    Main runs the game
+    """
 
     # 1) Rules
-    rules = Rules(5, 1, 2)
+    rules = Rules(3, 1, 2)
 
     # 2) Create players
     players = [

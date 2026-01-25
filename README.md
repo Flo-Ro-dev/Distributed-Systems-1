@@ -1,4 +1,21 @@
 # Distributed-Systems-1
+## Game rules: Mäxchen
+Mäxchen is a bluffing game where players secretly roll two dice and announce a result that must be higher than the previous one, by telling the truth or lying.
+The next player may either believe the announcement and continue rolling the two dice or doubt it and reveal the dice. When revealing: if the announcement was true
+the doubter (current player) gets a strike, if it was false, the announcer (previous player) gets a strike. If a player receives a defined number of strikes, they are 
+eliminated. The game runs until only one player is left. This is the ranking of possible rolls:
+
+```
+31, 32,
+41, 42, 43,
+51, 52, 53, 54,
+61, 62, 63, 64, 65,
+11, 22, 33, 44, 55, 66,
+21  # Mäxchen
+```
+The higher die is always placed first. Doublets are more worth. The Mäxchen (21) is the highest score.
+When a Mäxchen is doubted wrong, the player usually receives a higher amount of strikes. Since rolling higher is not possible,
+the last player can also believe the Mäxchen and receive a smaller amount of strikes.
 
 ## Broadcasting
 At the moment only broadcasting messages from Client to other Clients is possible.
@@ -54,3 +71,4 @@ It may makes sense to run the script in a Python virtual environment. The enviro
 ```
 source .venv/bin/activate
 ```
+

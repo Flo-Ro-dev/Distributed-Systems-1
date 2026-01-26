@@ -230,16 +230,20 @@ class PeerNode:
 
     # --- Game Interaction ---
     def init_game(self):
-        self.send_next({'type': 'START'})
+        self.send_next({'type': 'START', 'players_list': self.players_list})
 
     def _handle_start(self, msg):
+        self.players_list = msg['players_list']
+        print(f"[Game] Received START, players_list: {self.players_list}, my id: {self.id}")
         if self.id == self.players_list[0]:  # Spieler 1
             self.make_turn()
         else:
             self.send_next(msg)  # weiterleiten
 
     def make_turn(self):
+        print(f"[Game] make_turn called, current_player_index: {self.game_state['current_player_index']}, players_list: {self.players_list}")
         if self.id != self.players_list[self.game_state['current_player_index']]:
+            print(f"[Game] Not my turn, my id: {self.id}")
             return
         roll1 = random.randint(1, 6)
         roll2 = random.randint(1, 6)
@@ -251,11 +255,13 @@ class PeerNode:
         self.game_state['last_real_roll'] = real_roll
         self.game_state['last_announcer'] = self.id
         print(f"[Game] {self.id} rolled {real_roll}, announces {announcement}")
-        self.send_next({'type': 'TURN', 'game_state': self.game_state})
+        self.send_next({'type': 'TURN', 'game_state': self.game_state, 'players_list': self.players_list})
 
     def _handle_turn(self, msg):
+        self.players_list = msg.get('players_list', self.players_list)
         self.game_state = msg['game_state']
         doubt = random.choice([True, False])
+        print(f"[Game] Received TURN, doubt: {doubt}, last_announcement: {self.game_state['last_announcement']}")
         if doubt:
             announcer = self.game_state['last_announcer']
             real_roll = self.game_state['last_real_roll']
@@ -267,7 +273,7 @@ class PeerNode:
                 self.players[announcer].add_strike(self.rules.penalty)
                 print(f"[Game] {announcer} lied, penalty")
             scores = {id: p.strikes for id, p in self.players.items()}
-            self.send_next({'type': 'SCORES', 'scores': scores})
+            self.send_next({'type': 'SCORES', 'scores': scores, 'players_list': self.players_list})
             self.game_state['current_player_index'] = self.players_list.index(self.id)
             self.game_state['last_announcement'] = None
             self.game_state['last_real_roll'] = None
@@ -279,6 +285,7 @@ class PeerNode:
             self.make_turn()
 
     def _handle_scores(self, msg):
+        self.players_list = msg.get('players_list', self.players_list)
         scores = msg['scores']
         for id, strikes in scores.items():
             if id in self.players:

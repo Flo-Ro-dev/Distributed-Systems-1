@@ -4,7 +4,9 @@ import time
 import json
 import uuid
 import hashlib
-from game_logic import MaxleGame
+from player import Player
+from rules import Rules
+import random
 
 # Network Constants
 BROADCAST_PORT = 50000
@@ -25,7 +27,10 @@ class PeerNode:
         self.is_leader = False
         
         # Game State
-        self.game_engine = MaxleGame()
+        self.rules = Rules(3,1,2)
+        self.players = {}
+        self.players_list = []
+        self.game_state = {'current_player_index': 0, 'last_announcement': None, 'last_real_roll': None, 'last_announcer': None}
         
         print(f"Node Initialized | ID: {self.id[:6]} | Group: {self.group_hash[:6]}")
 
@@ -72,16 +77,14 @@ class PeerNode:
                 print(f"[Net] Found peer: {ip}")
                 self.peers[sender] = ip
                 self._send_udp_msg(ip, 'WELCOME')
-        socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        if target_ip == '<broadcast>':
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        
-        payload = json.dumps({
-            'type': mtype,
-            'sender_id': self.id,
-            'group': self.group_hash
-        })
-        sock.sendto(payload.encode(), (target_ip, BROADCAST_PORT))
+                self.players[sender] = Player(sender)
+                self.players_list = sorted(self.players.keys())
+        elif mtype == 'WELCOME':
+            if sender not in self.peers:
+                print(f"[Net] Peer welcomed us: {ip}")
+                self.peers[sender] = ip
+                self.players[sender] = Player(sender)
+                self.players_list = sorted(self.players.keys())
 
     # --- Topology Layer (Ring Formation) ---
     def form_ring(self):
@@ -168,6 +171,10 @@ class PeerNode:
             self._handle_election(msg)
         elif mtype == 'COORDINATOR':
             self._handle_coordinator(msg)
+        elif mtype == 'TURN':
+            self._handle_turn(msg)
+        elif mtype == 'SCORES':
+            self._handle_scores(msg)
         elif mtype == 'TOKEN':
             self._handle_game_token(msg)
 
@@ -221,30 +228,54 @@ class PeerNode:
 
     # --- Game Interaction ---
     def init_game(self):
-        print("\n" + "="*40)
-        print("LEADER ACTION REQUIRED")
-        input(">> Press ENTER to create the Dice Cup and start: ")
-        
-        token = self.game_engine.generate_fresh_cup()
-        token['type'] = 'TOKEN'
-        self._handle_game_token(token) # Treat it as if I just received it
+        self.make_turn()
 
-    def _handle_game_token(self, token):
-        print("\n" + "-"*30)
-        print(f"YOUR TURN (Round {token['turn_count']})")
-        if token['last_announced'] > 0:
-            print(f"Previous claim: {token['last_announced']}")
-        
-        # Interactive Pause
-        input(">> Press ENTER to roll dice... ")
-        
-        # Delegate logic to the Game Engine
-        updated_token = self.game_engine.play_turn(token)
-        updated_token['type'] = 'TOKEN'
-        
-        print("Passing cup...")
-        time.sleep(1) # Dramatic effect
-        self.send_next(updated_token)
+    def make_turn(self):
+        if self.id != self.players_list[self.game_state['current_player_index']]:
+            return
+        roll1 = random.randint(1, 6)
+        roll2 = random.randint(1, 6)
+        real_roll = self.rules.normalize(roll1, roll2)
+        announcement = real_roll
+        if self.game_state['last_announcement'] is not None and not self.rules.is_higher(announcement, self.game_state['last_announcement']):
+            announcement = self.game_state['last_announcement'] + 1
+        self.game_state['last_announcement'] = announcement
+        self.game_state['last_real_roll'] = real_roll
+        self.game_state['last_announcer'] = self.id
+        print(f"[Game] {self.id} rolled {real_roll}, announces {announcement}")
+        self.send_next({'type': 'TURN', 'game_state': self.game_state})
+
+    def _handle_turn(self, msg):
+        self.game_state = msg['game_state']
+        doubt = random.choice([True, False])
+        if doubt:
+            announcer = self.game_state['last_announcer']
+            real_roll = self.game_state['last_real_roll']
+            announcement = self.game_state['last_announcement']
+            if real_roll == announcement:
+                self.players[self.id].add_strike(self.rules.penalty)
+                print(f"[Game] {self.id} doubted wrong, penalty")
+            else:
+                self.players[announcer].add_strike(self.rules.penalty)
+                print(f"[Game] {announcer} lied, penalty")
+            scores = {id: p.strikes for id, p in self.players.items()}
+            self.send_next({'type': 'SCORES', 'scores': scores})
+            self.game_state['current_player_index'] = self.players_list.index(self.id)
+            self.game_state['last_announcement'] = None
+            self.game_state['last_real_roll'] = None
+            self.game_state['last_announcer'] = None
+            self.make_turn()
+        else:
+            print(f"[Game] {self.id} believes")
+            self.game_state['current_player_index'] = (self.game_state['current_player_index'] + 1) % len(self.players_list)
+            self.make_turn()
+
+    def _handle_scores(self, msg):
+        scores = msg['scores']
+        for id, strikes in scores.items():
+            if id in self.players:
+                self.players[id].strikes = strikes
+        print("Scores updated")
 
     # --- Fault Tolerance ---
     def repair_topology(self):
@@ -264,10 +295,15 @@ class PeerNode:
             return s.getsockname()[0]
         except:
             return '127.0.0.1'
-        elif mtype == 'WELCOME':
-            if sender not in self.peers:
-                print(f"[Net] Peer welcomed us: {ip}")
-                self.peers[sender] = ip
 
     def _send_udp_msg(self, target_ip, mtype):
-        sock = 
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        if target_ip == '<broadcast>':
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        
+        payload = json.dumps({
+            'type': mtype,
+            'sender_id': self.id,
+            'group': self.group_hash
+        })
+        sock.sendto(payload.encode(), (target_ip, BROADCAST_PORT))

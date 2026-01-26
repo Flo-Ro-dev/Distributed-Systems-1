@@ -72,14 +72,7 @@ class PeerNode:
                 print(f"[Net] Found peer: {ip}")
                 self.peers[sender] = ip
                 self._send_udp_msg(ip, 'WELCOME')
-        
-        elif mtype == 'WELCOME':
-            if sender not in self.peers:
-                print(f"[Net] Peer welcomed us: {ip}")
-                self.peers[sender] = ip
-
-    def _send_udp_msg(self, target_ip, mtype):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         if target_ip == '<broadcast>':
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         
@@ -271,3 +264,10 @@ class PeerNode:
             return s.getsockname()[0]
         except:
             return '127.0.0.1'
+        elif mtype == 'WELCOME':
+            if sender not in self.peers:
+                print(f"[Net] Peer welcomed us: {ip}")
+                self.peers[sender] = ip
+
+    def _send_udp_msg(self, target_ip, mtype):
+        sock = 

@@ -171,6 +171,8 @@ class PeerNode:
             self._handle_election(msg)
         elif mtype == 'COORDINATOR':
             self._handle_coordinator(msg)
+        elif mtype == 'START':
+            self._handle_start(msg)
         elif mtype == 'TURN':
             self._handle_turn(msg)
         elif mtype == 'SCORES':
@@ -228,7 +230,13 @@ class PeerNode:
 
     # --- Game Interaction ---
     def init_game(self):
-        self.make_turn()
+        self.send_next({'type': 'START'})
+
+    def _handle_start(self, msg):
+        if self.id == self.players_list[0]:  # Spieler 1
+            self.make_turn()
+        else:
+            self.send_next(msg)  # weiterleiten
 
     def make_turn(self):
         if self.id != self.players_list[self.game_state['current_player_index']]:

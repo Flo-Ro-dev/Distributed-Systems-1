@@ -72,3 +72,6 @@ It may makes sense to run the script in a Python virtual environment. The enviro
 source .venv/bin/activate
 ```
 
+# Requirements
+
+

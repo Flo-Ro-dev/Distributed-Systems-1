@@ -8,16 +8,14 @@ class MaxleGame:
     def __init__(self, password):
         self.password = password
         
-        # Exact hierarchy provided: 31 lowest -> 21 highest (Mäxchen)
         self.order = [
             31, 32,
             41, 42, 43,
             51, 52, 53, 54,
             61, 62, 63, 64, 65,
             11, 22, 33, 44, 55, 66,
-            21 # Maexchen
+            21
         ]
-        # Map value -> rank index (0 to 20)
         self.rank = {value: i for i, value in enumerate(self.order)}
 
     def normalize(self, d1: int, d2: int):
@@ -25,7 +23,6 @@ class MaxleGame:
         high = max(d1, d2)
         low = min(d1, d2)
         val = high * 10 + low
-        # Special case: 21 is just 21 (Mäxchen)
         if val == 21: return 21
         return val
 
@@ -37,7 +34,6 @@ class MaxleGame:
 
     def is_higher(self, current_val: int, previous_val: int):
         """Returns True if current_val beats previous_val."""
-        # If previous was 0 (start of game), anything valid is higher
         if previous_val == 0:
             return True
             

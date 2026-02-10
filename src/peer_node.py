@@ -10,18 +10,18 @@ import queue
 from collections import deque
 from game_logic import MaxleGame
 
-# Configuration
+# Basic Game config
 DISCOVERY_TIME = 5
 BROADCAST_PORT = 50000
 TCP_PORT = 50001
 BUF_SIZE = 4096
 
-# Heartbeat Settings
+# Heartbeat config
 HEARTBEAT_INTERVAL = 1.0
 HEARTBEAT_TIMEOUT = 5.0
 NETWORK_TIMEOUT_LIMIT = 15
 
-# Reliability Settings
+# History of Reliable Ordered Multicast
 HISTORY_SIZE = 50
 
 class PeerNode:
@@ -54,7 +54,6 @@ class PeerNode:
         self.active_player_id = None 
         self.turn_state = "IDLE" 
         
-        # --- State Management ---
         self.round_id = 1 
         self.my_seq = 0  
         self.remote_seqs = {}  
@@ -66,7 +65,6 @@ class PeerNode:
         print(f"[Init] Node Started | ID: {self.id}")
         print(f"[Init] IP: {self.my_ip} | Broadcast Target: {self.broadcast_ip}")
 
-    # --- NETWORK UTILITIES ---
     def _detect_best_ip(self):
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -89,7 +87,6 @@ class PeerNode:
         parts = ip.split('.')
         return f"{parts[0]}.{parts[1]}.{parts[2]}.255"
 
-    # --- MAIN LIFECYCLE ---
     def start(self):
         threading.Thread(target=self._listen_udp, daemon=True).start()
         threading.Thread(target=self._listen_tcp, daemon=True).start()
@@ -125,7 +122,7 @@ class PeerNode:
                 'state': 'RUNNING',
                 'round_id': self.round_id,
                 'players': self.alive_players,
-                'scores': self.scores  # <--- ADD THIS
+                'scores': self.scores
             }
             self._send_unreliable_broadcast(msg)
             time.sleep(HEARTBEAT_INTERVAL)
@@ -141,7 +138,6 @@ class PeerNode:
             for pid in list(self.alive_players):
                 if pid == self.id: continue
                 last = self.peer_last_seen.get(pid, now)
-                # 5 second timeout
                 if now - last > HEARTBEAT_TIMEOUT:
                     dead_candidates.append(pid)
             
@@ -149,17 +145,15 @@ class PeerNode:
                 if dead_id in self.alive_players:
                     print(f"\n[!!!] TIMEOUT: Player {dead_id} stopped responding.")
                     
-                    # FIX: Broadcast multiple times to ensure delivery
                     msg = {'type': 'PLAYER_LEFT', 'dropout': dead_id}
                     for _ in range(3):
                         self._send_unreliable_broadcast(msg)
                         time.sleep(0.1)
                     
-                    # Handle locally immediately
                     self._handle_player_left(dead_id)
 
     def _phase_discovery(self):
-        print(f"\n--- PHASE 1: DISCOVERY ({DISCOVERY_TIME}s) ---")
+        print(f"\nPHASE 1: DISCOVERY ({DISCOVERY_TIME}s)")
         start_time = time.time()
         while time.time() - start_time < DISCOVERY_TIME:
             if self.game_running: break 
@@ -189,11 +183,11 @@ class PeerNode:
             am_i_leader = (self.id == highest_id)
 
             if am_i_leader and not self.is_leader:
-                print(f"\n[!!!] YOU BECAME LEADER (ID: {self.id})")
+                print(f"\nYOU BECAME LEADER (ID: {self.id})")
                 print(">> Press ENTER to Start Game")
                 self.is_leader = True
             elif not am_i_leader and self.is_leader:
-                print(f"\n[---] DEMOTED: Higher ID {highest_id} found.")
+                print(f"\nDEMOTED: Higher ID {highest_id} found.")
                 self.is_leader = False
 
             if self.is_leader:
@@ -210,7 +204,6 @@ class PeerNode:
                         self.final_player_list = event['players']
                         self.max_strikes = event['max_strikes']
                         
-                        # FIX: Sync the active player from the message
                         self.active_player_id = event.get('starting_player', self.final_player_list[-1]) 
                         
                         for p in self.final_player_list: self.scores[p] = 0
@@ -233,24 +226,22 @@ class PeerNode:
         self.final_player_list = current_list
         self.max_strikes = 3
         
-        # FIX: Explicitly tell everyone that I (the Leader) am starting
         msg = {
             'type': 'GAME_START', 
             'players': self.final_player_list, 
             'max_strikes': self.max_strikes,
-            'starting_player': self.id  # <--- ADD THIS
+            'starting_player': self.id
         }
         self._send_reliable_broadcast(msg)
         
         for p in self.final_player_list: self.scores[p] = 0
         
-        self.active_player_id = self.id # Set myself as active
+        self.active_player_id = self.id
         self.ui_queue.put({'type': 'MY_TURN_START', 'first_round': True})
 
     def _connect_to_next_neighbor(self):
         if self.is_spectator: return
         
-        # 1. Determine who my neighbor SHOULD be
         try: my_idx = self.final_player_list.index(self.id)
         except ValueError: return 
         
@@ -263,7 +254,6 @@ class PeerNode:
         
         if not target_id or target_id == self.id: return
 
-        # 2. Re-Route if current neighbor doesn't match target
         if self.neighbor_id != target_id:
             if self.neighbor_sock:
                 print(f" [Network] Closing stale connection to {self.neighbor_id}...")
@@ -272,7 +262,6 @@ class PeerNode:
             self.neighbor_sock = None
             self.neighbor_id = target_id 
 
-        # 3. Connect if needed
         if not self.neighbor_sock:
             target_ip = self.peers.get(target_id)
             if not target_ip: target_ip = '127.0.0.1' # Fallback
@@ -330,20 +319,14 @@ class PeerNode:
     def _handle_player_left(self, dropout_id):
         if dropout_id not in self.final_player_list: return
         
-        # 1. Update Alive List & Score
         if dropout_id in self.alive_players:
             self.alive_players.remove(dropout_id)
         
-        # Mark them as max strikes so they are effectively out logic-wise
         self.scores[dropout_id] = self.max_strikes
         print(f"\n[!] Player {dropout_id} ELIMINATED (Connection Lost).")
 
-        # --- CRITICAL FIX: FORCE NEW ROUND ID ---
-        # A crash voids the current round. Everyone must increment to agree on the future.
         self.round_id += 1 
-        # ----------------------------------------
 
-        # 2. Topology Repair
         if not self.is_spectator and self.neighbor_id == dropout_id:
             print(f" [Network] Neighbor {dropout_id} gone. Repairing ring...")
             if self.neighbor_sock:
@@ -353,7 +336,6 @@ class PeerNode:
             self.neighbor_id = None
             self._connect_to_next_neighbor()
 
-        # 3. Check Win Condition
         if len(self.alive_players) <= 1:
             if len(self.alive_players) == 1:
                 print(f"\n[GAME OVER] WINNER IS {self.alive_players[0]}!")
@@ -362,7 +344,6 @@ class PeerNode:
             self._print_scoreboard()
             return
 
-        # 4. RECOVERY: Calculate Successor
         idx = 0
         if dropout_id in self.final_player_list:
             idx = self.final_player_list.index(dropout_id)
@@ -382,8 +363,6 @@ class PeerNode:
                 self.turn_state = "IDLE"
                 time.sleep(1.0)
                 
-                # --- FIX: FLUSH QUEUE & FORCE FRESH START ---
-                # Remove any stale inputs or token receipts from the now-dead round
                 while not self.ui_queue.empty():
                     try: self.ui_queue.get_nowait()
                     except: break
@@ -392,7 +371,7 @@ class PeerNode:
                     'type': 'MY_TURN_START', 
                     'first_round': True, 
                     'prev_claim': 0,
-                    'round_id_sync': self.round_id # Internal marker
+                    'round_id_sync': self.round_id
                 })
             else:
                 print(f"[!] Waiting for {successor} to start new round...")
@@ -403,7 +382,6 @@ class PeerNode:
         sender_id = token.get('sender_id')
         if sender_id == self.id: return
         
-        # Initial liveness check
         if sender_id not in self.alive_players: 
             print("[!] Ignoring token from dead player.")
             return
@@ -411,12 +389,10 @@ class PeerNode:
         announced_val = token['announced']
         print(f"\n[INCOMING] Claim: {announced_val}")
 
-        # --- LOGIC BLOCK: CHECK FOR DEAD SENDER AFTER INPUT ---
         def is_sender_still_valid():
             if sender_id not in self.alive_players:
                 print("\n[!] Sender died while you were deciding. Turn VOID.")
                 return False
-            # Also check if round ID advanced (due to recovery) while we were waiting
             if token.get('round_id') != self.round_id:
                 print("\n[!] Round ID changed (Recovery happened). Turn VOID.")
                 return False
@@ -430,9 +406,7 @@ class PeerNode:
                 cmd = input(">> Decision (y/n)? ").lower()
                 if cmd in ['y', 'n']: break
             
-            # --- CRITICAL CHECK ---
             if not is_sender_still_valid(): return
-            # ----------------------
 
             real = token['security']['hidden_real']
             
@@ -450,7 +424,6 @@ class PeerNode:
                     points = 2
                     print(f"   [BUSTED] {sender_id} lied! They take 2 strikes. Real: {real}")
             
-            # (Round over logic remains the same...)
             round_over_msg = {
                 'type': 'ROUND_OVER', 'loser': loser, 'real_value': real,
                 'points': points, 'round_id': self.round_id
@@ -459,12 +432,9 @@ class PeerNode:
             self.ui_queue.put(round_over_msg)
             return
 
-        # Normal value logic
         cmd = input(">> Trust (y) or Check (n)? ").lower()
         
-        # --- CRITICAL CHECK ---
         if not is_sender_still_valid(): return
-        # ----------------------
 
         if cmd == 'n':
             real = token['security']['hidden_real']
@@ -488,13 +458,11 @@ class PeerNode:
         self.scores[loser] += msg.get('points', 1)
         self.round_id += 1
 
-        # Check for Elimination
         if self.scores[loser] >= self.max_strikes:
             print(f"[!] {loser} ELIMINATED.")
             if loser in self.alive_players: 
                 self.alive_players.remove(loser)
             
-            # If I just lost, switch to spectator
             if loser == self.id:
                 print(">> YOU ARE OUT. SPECTATOR MODE.")
                 self.is_spectator = True
@@ -505,28 +473,22 @@ class PeerNode:
                 self._print_scoreboard()
                 return 
 
-            # Force topology update immediately if my neighbor died
             if self.neighbor_id == loser: 
                 self._connect_to_next_neighbor()
 
         self._print_scoreboard()
 
-        # Check for Game Winner
         if len(self.alive_players) == 1:
             print(f"\n[GAME OVER] WINNER IS {self.alive_players[0]}!")
             self.running = False
             return
 
-        # Calculate Next Player (Strictly skipping dead people)
-        # Usually, the loser starts the next round. If dead, the person AFTER them starts.
         start_node = loser
         idx = 0
         if start_node in self.final_player_list: 
             idx = self.final_player_list.index(start_node)
         
         next_p = None
-        # Start looking from the loser (offset 0) or loser+1? 
-        # Maxle rule: Loser starts. If loser is dead, next guy starts.
         offset = 0 
         
         for i in range(offset, len(self.final_player_list) + 1):
@@ -535,14 +497,13 @@ class PeerNode:
                 next_p = cand
                 break
         
-        if not next_p: return # Should not happen if len > 1
+        if not next_p: return
 
         self.active_player_id = next_p
         
         if next_p == self.id and not self.is_spectator:
             print("\n[!] Your turn to start next round.")
             time.sleep(2)
-            # Reset prev_claim to 0 because it's a fresh round
             self.ui_queue.put({'type': 'MY_TURN_START', 'first_round': True, 'prev_claim': 0})
         else:
             print(f"\n[!] Waiting for {next_p}...")
@@ -551,7 +512,6 @@ class PeerNode:
         if self.is_spectator: return 
         print("\n--- YOUR TURN ---")
         
-        # Only ask to roll if it's NOT the first round (Normal play)
         if not first_round: 
             input(">> Press ENTER to roll dice...")
             
@@ -560,7 +520,6 @@ class PeerNode:
         
         while True:
             try:
-                # If first_round is True, min_val MUST be 0
                 min_val = prev_claim if not first_round else 0
                 
                 claim = int(input(f">> Announce (> {min_val}): "))
@@ -609,11 +568,9 @@ class PeerNode:
             if not response_bytes: return False
             response = json.loads(response_bytes.decode())
             
-            # --- FIX: Check if peer explicitly accepted or rejected ---
             if response.get('status') == 'REJECTED':
                 print(f"[!] Peer REJECTED the cup: {response.get('reason')}")
                 return False
-            # ---------------------------------------------------------
             
             return response.get('type') == 'ACK'
         except (socket.timeout, socket.error, json.JSONDecodeError):
@@ -635,30 +592,21 @@ class PeerNode:
                 sip = msg.get('sender_ip', addr[0])
                 if sid == self.id: continue
                 
-                # --- STRICT IP UPDATE ---
                 self.peer_last_seen[sid] = time.time()
                 if sid not in self.peers or self.peers[sid] != sip:
                     self.peers[sid] = sip
-                # ------------------------
 
                 if msg['type'] == 'HEARTBEAT':
                     if msg.get('state') == 'RUNNING':
                         self.game_running = True 
                         
-                        # --- FIX: SYNC SCORES ---
-                        # If the heartbeat contains scores, update our local record.
-                        # This ensures spectators or late-joiners see the correct history.
                         if 'scores' in msg:
                             remote_scores = msg['scores']
                             for p, score in remote_scores.items():
-                                # We trust the network's score if it's higher than ours,
-                                # or if we are a spectator (trust everything).
                                 if self.is_spectator or score > self.scores.get(p, 0):
                                     self.scores[p] = score
-                        # ------------------------
 
                         if self.is_spectator or not self.final_player_list:
-                            # (Existing logic for updating round_id and alive_players...)
                             if 'round_id' in msg and msg['round_id'] > self.round_id:
                                 self.round_id = msg['round_id']
                             
@@ -724,7 +672,6 @@ class PeerNode:
                         token = data['payload']
                         sender = token.get('sender_id')
                         
-                        # --- VALIDATION (Send Application NACK if failed) ---
                         reason = None
                         if sender == self.id: reason = "Loopback"
                         elif sender not in self.alive_players: reason = "Sender Dead"
@@ -738,7 +685,6 @@ class PeerNode:
                             conn.sendall(json.dumps({'type': 'ACK', 'status': 'OK'}).encode())
                             if not self.is_spectator:
                                 self.ui_queue.put({'type': 'TOKEN_RCV', 'token': token})
-                        # ----------------------------------------------------
 
                 except: pass
     

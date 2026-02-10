@@ -7,7 +7,7 @@ import os
 class MaxleGame:
     def __init__(self, password):
         self.password = password
-        
+        # Mäxle values, from top (low) to bottom (high), highest value is 21 (Mäxle)
         self.order = [
             31, 32,
             41, 42, 43,
@@ -19,7 +19,7 @@ class MaxleGame:
         self.rank = {value: i for i, value in enumerate(self.order)}
 
     def normalize(self, d1: int, d2: int):
-        """Standardizes dice roll to Mäxle format (HighLow)."""
+        """Convert values, to Mäxle values"""
         high = max(d1, d2)
         low = min(d1, d2)
         val = high * 10 + low
@@ -27,13 +27,13 @@ class MaxleGame:
         return val
 
     def roll_dice(self):
-        """Rolls two dice and returns the normalized Mäxle value."""
+        """Rolls two dices"""
         d1 = random.randint(1, 6)
         d2 = random.randint(1, 6)
         return self.normalize(d1, d2)
 
     def is_higher(self, current_val: int, previous_val: int):
-        """Returns True if current_val beats previous_val."""
+        """Returns true if current is higher than previouse value, see Mäxle array before"""
         if previous_val == 0:
             return True
             
@@ -44,13 +44,11 @@ class MaxleGame:
 
     def validate_announcement(self, claim, previous_claim):
         """
-        Checks if the user's input is valid:
-        1. Must be a real dice combo (in self.order).
-        2. Must be strictly higher than previous_claim.
-        Returns: (True, "") or (False, "Error Message")
+        Checks if dice combo is valis (see Mäxle array)
+        Checks if claim is higher than previouse claim
         """
         if claim not in self.rank:
-            return False, "That is not a valid dice combination (e.g. 31, 42, 66, 21)."
+            return False, "That is not a valid dice combination."
             
         if not self.is_higher(claim, previous_claim):
             return False, f"You must beat {previous_claim}! ({claim} is too low)"
@@ -58,7 +56,7 @@ class MaxleGame:
         return True, ""
 
     def secure_cup(self, real_value, announced_value):
-        """Creates the secure token hash."""
+        """Hash dice roll with password, to not send real value as clear text."""
         nonce = os.urandom(8).hex()
         raw_string = f"{real_value}{self.password}{nonce}"
         secure_hash = hashlib.sha256(raw_string.encode()).hexdigest()

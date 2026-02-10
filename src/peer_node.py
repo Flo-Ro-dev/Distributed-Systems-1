@@ -66,6 +66,9 @@ class PeerNode:
         print(f"[Init] IP: {self.my_ip} | Broadcast Target: {self.broadcast_ip}")
 
     def _detect_best_ip(self):
+        '''Detect IP Interface that routes default route. 
+            8.8.8.8 is google DNS
+        '''
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(('8.8.8.8', 80)) 
@@ -83,11 +86,16 @@ class PeerNode:
         except: return '127.0.0.1'
 
     def _calculate_broadcast(self, ip):
+        '''Highest IP in network is Broadcast for common /24 networks that is X.X.X.255'''
         if ip == '127.0.0.1': return '255.255.255.255'
         parts = ip.split('.')
         return f"{parts[0]}.{parts[1]}.{parts[2]}.255"
 
     def start(self):
+        '''Starts listener threads one for UDP one for TCP. 
+            Starts the game, if a game is already running with same password in the local
+            network then join the game as spectator
+        '''
         threading.Thread(target=self._listen_udp, daemon=True).start()
         threading.Thread(target=self._listen_tcp, daemon=True).start()
 
@@ -112,10 +120,15 @@ class PeerNode:
         self._phase_game_loop()
 
     def _start_heartbeat_system(self):
+        '''Start heartbeat threads'''
         threading.Thread(target=self._send_heartbeats, daemon=True).start()
         threading.Thread(target=self._monitor_liveness, daemon=True).start()
 
     def _send_heartbeats(self):
+        '''
+            Send heartbeat respective to config usually one each second
+            Heartbeats are also used to distribute scoreboard and game state
+        '''
         while self.running and self.game_running:
             msg = {
                 'type': 'HEARTBEAT',
@@ -128,6 +141,10 @@ class PeerNode:
             time.sleep(HEARTBEAT_INTERVAL)
 
     def _monitor_liveness(self):
+        '''
+        Checks if all participating players are still connected, if a player is not seen in HEARTBEAT_TIMEOUT 5s
+        The player disconnected event gets triggert and the player is eliminated.
+        '''
         while self.running and self.game_running:
             time.sleep(1)
             if len(self.alive_players) <= 1: continue
@@ -153,6 +170,9 @@ class PeerNode:
                     self._handle_player_left(dead_id)
 
     def _phase_discovery(self):
+        '''
+        Send dynamic discovery as UDP broadcast (unreliable)
+        '''
         print(f"\nPHASE 1: DISCOVERY ({DISCOVERY_TIME}s)")
         start_time = time.time()
         while time.time() - start_time < DISCOVERY_TIME:
@@ -166,6 +186,12 @@ class PeerNode:
         print(f"Peers found: {len(self.peers)}")
 
     def _phase_lobby(self):
+        '''
+        Discovery process.
+        5s shout HELLO and listens to IPs that do the same.
+        Then start bullying, player with highest UUID becomes leader
+        This also uses UDP broadcasts
+        '''
         print("\n" + "="*50 + "\n LOBBY / ELECTION PHASE \n" + "="*50)
         def input_listener():
             while not self.game_running:
@@ -218,6 +244,13 @@ class PeerNode:
             time.sleep(1)
 
     def _start_game_as_leader(self):
+        '''
+        Player can start game when elected as leader by pressing ENTER
+        The max_strikes are fixed at 3 (maybe in the future variable)
+        Uses reliable broadcast to broadcast game settings
+        
+        Be aware at least 2 players are necessary to play the game
+        '''
         current_list = list(self.peers.keys()) + [self.id]
         current_list.sort()
         if len(current_list) < 2:
@@ -240,6 +273,9 @@ class PeerNode:
         self.ui_queue.put({'type': 'MY_TURN_START', 'first_round': True})
 
     def _connect_to_next_neighbor(self):
+        '''
+        Establishes a TCP connection to the next neighbor this is part of the ring building.
+        '''
         if self.is_spectator: return
         
         try: my_idx = self.final_player_list.index(self.id)
@@ -278,26 +314,30 @@ class PeerNode:
                 print(" Failed (will retry).")
 
     def _phase_game_loop(self):
+        '''
+        Gameloop, like a queue, waits for events and works through them
+        '''
         print("\n" + "*"*40 + "\n          GAME START          \n" + "*"*40)
         self._print_scoreboard()
         while self.running:
             try:
                 event = self.ui_queue.get()
                 
+                # If spectator nothing to do
                 if self.is_spectator and event['type'] in ['MY_TURN_START', 'TOKEN_RCV']:
                      continue
-
+                # EVENT 1: MY TURN
                 if event['type'] == 'MY_TURN_START':
                     self.active_player_id = self.id
                     self._do_turn(event.get('first_round', False), event.get('prev_claim', 0))
-                
+                # EVENT 2: Get dices from previouse player. 'Becher bekommen in der Bar'
                 elif event['type'] == 'TOKEN_RCV':
                     token = event['token']
                     sender = token.get('sender_id')
                     
                     self.active_player_id = self.id 
                     self._handle_incoming_token(token)
-                
+                # EVENT 3: Someone anounced a value
                 elif event['type'] == 'ANNOUNCE':
                     sender_id = event.get('sender_id')
                     if sender_id not in self.alive_players: continue
@@ -306,11 +346,11 @@ class PeerNode:
                     self.active_player_id = sender_id 
                     if sender_id != self.id:
                         print(f"\n [INFO] {sender_id} announced: {event.get('value')}")
-
+                # EVENT 4: Someone lost, round over
                 elif event['type'] == 'ROUND_OVER':
                     if event.get('round_id') == self.round_id:
                         self._handle_round_over(event)
-                
+                # EVENT 5: Player left lost connection
                 elif event['type'] == 'PLAYER_LEFT':
                     self._handle_player_left(event['dropout'])
 
@@ -509,6 +549,9 @@ class PeerNode:
             print(f"\n[!] Waiting for {next_p}...")
 
     def _do_turn(self, first_round, prev_claim):
+        '''
+        Your turn. Roll the dice, anounce, give the cup with dices to the next player in the ring.
+        '''
         if self.is_spectator: return 
         print("\n--- YOUR TURN ---")
         
@@ -577,6 +620,10 @@ class PeerNode:
             return False
 
     def _listen_udp(self):
+        '''
+        Listens to UDP handles broadcast and reliable ulticast when the packet has a sequence number
+        UDP messages can be, HEARTBEAT, HELLO, NACK, and RELIABLE MUTLICAST (if packet has seq)
+        '''
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try: s.bind(('', BROADCAST_PORT))
@@ -697,6 +744,7 @@ class PeerNode:
         print("------------------")
 
     def _send_reliable_broadcast(self, msg):
+        '''Create reliable broadcast message. Message + Sequence number + save for retransmission'''
         self.my_seq += 1
         msg['seq'] = self.my_seq
         self.msg_history.append(msg)
@@ -711,11 +759,17 @@ class PeerNode:
         except: pass
 
     def _handle_nack(self, req_seq):
+        '''
+        Some one is sending NACK -> so message is missing -> try to retransmit via seq
+        '''
         for stored_msg in self.msg_history:
             if stored_msg['seq'] == req_seq:
                 self._send_unreliable_broadcast(stored_msg) 
                 return
 
     def _send_nack(self, target_id, missing_seq):
+        '''
+        When message is missing ask for retransmission via NACK
+        '''
         nack = {'type': 'NACK', 'req_seq': missing_seq, 'target_id': target_id}
         self._send_unreliable_broadcast(nack)

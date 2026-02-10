@@ -72,6 +72,8 @@ It may makes sense to run the script in a Python virtual environment. The enviro
 source .venv/bin/activate
 ```
 
-# Requirements
+## Acknoledgement
+
+For the code and comments AI was used, to verify, find bugs and propose solutions to coding problems. The AI used was Gemini 3 (Pro) and ChatGPT 5 (5.1, 5.2, 5.3).
 
 
